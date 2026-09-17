@@ -15,6 +15,9 @@ public sealed partial class MainWindow : Window
 {
     private readonly VideoLibraryService _videoLibraryService = new();
 
+    private readonly PlatformVideoDownloader
+    _platformVideoDownloader = new();
+
     private readonly ObservableCollection<VideoAsset> _videos = new();
 
     public MainWindow()
@@ -88,5 +91,83 @@ public sealed partial class MainWindow : Window
         RoutedEventArgs e)
     {
         await LoadVideosAsync();
+    }
+    private async void DownloadVideoButton_Click(
+    object sender,
+    RoutedEventArgs e)
+    {
+        string url = VideoUrlTextBox.Text.Trim();
+
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            StatusText.Text =
+                "Paste a direct video URL first.";
+            return;
+        }
+
+        try
+        {
+            StatusText.Text =
+                "Downloading video...";
+
+            VideoAsset? video =
+                await _videoLibraryService
+                    .ImportVideoFromUrlAsync(url);
+
+            if (video is null)
+            {
+                StatusText.Text =
+                    "Download cancelled.";
+                return;
+            }
+
+            _videos.Insert(0, video);
+
+            VideoUrlTextBox.Text = string.Empty;
+
+            StatusText.Text =
+                $"Downloaded: {video.FileName}";
+        }
+        catch (Exception exception)
+        {
+            StatusText.Text =
+                $"Download failed: {exception.Message}";
+        }
+    }
+
+    private async void DownloadPlatformVideoButton_Click(
+    object sender,
+    RoutedEventArgs e)
+    {
+        string url = VideoUrlTextBox.Text.Trim();
+
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            StatusText.Text =
+                "Paste a platform URL first.";
+            return;
+        }
+
+        try
+        {
+            StatusText.Text =
+                "Downloading platform video...";
+
+            VideoAsset video =
+                await _platformVideoDownloader
+                    .DownloadAsync(url);
+
+            _videos.Insert(0, video);
+
+            VideoUrlTextBox.Text = string.Empty;
+
+            StatusText.Text =
+                $"Downloaded: {video.FileName}";
+        }
+        catch (Exception exception)
+        {
+            StatusText.Text =
+                $"Platform download failed: {exception.Message}";
+        }
     }
 }

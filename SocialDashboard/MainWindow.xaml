@@ -32,17 +32,39 @@
 
         <StackPanel
             Grid.Row="1"
-            Orientation="Horizontal"
             Spacing="12"
             Margin="0,24,0,20">
 
-            <Button
-                Content="Import local video"
-                Click="ImportVideoButton_Click"/>
+            <TextBox
+                x:Name="VideoUrlTextBox"
+                PlaceholderText="Paste a YouTube, TikTok, Instagram, or direct video URL"
+                MinWidth="620"/>
 
-            <Button
-                Content="Refresh library"
-                Click="RefreshLibraryButton_Click"/>
+            <StackPanel
+                Orientation="Horizontal"
+                Spacing="12">
+
+                <Button
+                    Content="Download platform URL"
+                    Click="DownloadPlatformVideoButton_Click"/>
+
+                <Button
+                    Content="Download direct file URL"
+                    Click="DownloadVideoButton_Click"/>
+            </StackPanel>
+
+            <StackPanel
+                Orientation="Horizontal"
+                Spacing="12">
+
+                <Button
+                    Content="Import local video"
+                    Click="ImportVideoButton_Click"/>
+
+                <Button
+                    Content="Refresh library"
+                    Click="RefreshLibraryButton_Click"/>
+            </StackPanel>
         </StackPanel>
 
         <Border
