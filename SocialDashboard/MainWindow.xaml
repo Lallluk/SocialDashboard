@@ -55,6 +55,12 @@
                     Click="DownloadPlatformVideoButton_Click"/>
 
                 <Button
+                    x:Name="CancelDownloadButton"
+                    Content="Cancel download"
+                    Click="CancelDownloadButton_Click"
+                    IsEnabled="False"/>
+
+                <Button
                     Content="Download direct file URL"
                     Click="DownloadVideoButton_Click"/>
             </StackPanel>

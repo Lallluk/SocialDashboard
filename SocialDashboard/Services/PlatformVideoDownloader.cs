@@ -3,35 +3,36 @@ using SocialDashboard.Models;
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Linq;
 
 namespace SocialDashboard.Services;
 
 public sealed class PlatformVideoDownloader
 {
     private readonly string _ytDlpPath;
+
     private readonly string _ffmpegDirectory;
 
     public PlatformVideoDownloader()
     {
-        string projectFolder =
-            AppContext.BaseDirectory;
+        string toolsFolder =
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "Tools");
 
-        string toolsFolder = Path.Combine(
-            projectFolder,
-            "Tools");
+        _ytDlpPath =
+            Path.Combine(
+                toolsFolder,
+                "yt-dlp.exe");
 
-        _ytDlpPath = Path.Combine(
-            toolsFolder,
-            "yt-dlp.exe");
-
-        _ffmpegDirectory = Path.Combine(
-            toolsFolder,
-            "ffmpeg",
-            "bin");
+        _ffmpegDirectory =
+            Path.Combine(
+                toolsFolder,
+                "ffmpeg",
+                "bin");
     }
 
     public async Task<VideoAsset> DownloadAsync(
@@ -55,67 +56,86 @@ public sealed class PlatformVideoDownloader
                 $"yt-dlp.exe was not found at {_ytDlpPath}");
         }
 
-        string videoFolder = Path.Combine(
-            Environment.GetFolderPath(
-                Environment.SpecialFolder.LocalApplicationData),
-            "SocialDashboard",
-            "Videos");
+        string videoFolder =
+            Path.Combine(
+                Environment.GetFolderPath(
+                    Environment.SpecialFolder.LocalApplicationData),
+                "SocialDashboard",
+                "Videos");
 
         Directory.CreateDirectory(videoFolder);
 
-        string outputTemplate = Path.Combine(
-            videoFolder,
-            $"{Guid.NewGuid()}.%(ext)s");
+        string filePrefix =
+            Guid.NewGuid().ToString();
 
-        ProcessStartInfo startInfo = new()
+        string outputTemplate =
+            Path.Combine(
+                videoFolder,
+                $"{filePrefix}.%(ext)s");
+
+        ProcessStartInfo startInfo =
+            new()
+            {
+                FileName = _ytDlpPath,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+        startInfo.ArgumentList.Add(
+            "--no-playlist");
+
+        startInfo.ArgumentList.Add(
+            "--merge-output-format");
+
+        startInfo.ArgumentList.Add(
+            "mp4");
+
+        startInfo.ArgumentList.Add(
+            "--newline");
+
+        startInfo.ArgumentList.Add(
+            "--no-warnings");
+
+        startInfo.ArgumentList.Add(
+            "-o");
+
+        startInfo.ArgumentList.Add(
+            outputTemplate);
+
+        if (Directory.Exists(
+                _ffmpegDirectory))
         {
-            FileName = _ytDlpPath,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
+            startInfo.ArgumentList.Add(
+                "--ffmpeg-location");
 
-        startInfo.ArgumentList.Add("--no-playlist");
-        startInfo.ArgumentList.Add("--merge-output-format");
-        startInfo.ArgumentList.Add("mp4");
-        startInfo.ArgumentList.Add("--newline");
-        startInfo.ArgumentList.Add("--no-warnings");
-        startInfo.ArgumentList.Add("-o");
-        startInfo.ArgumentList.Add(outputTemplate);
-
-        if (Directory.Exists(_ffmpegDirectory))
-        {
-            startInfo.ArgumentList.Add("--ffmpeg-location");
-            startInfo.ArgumentList.Add(_ffmpegDirectory);
+            startInfo.ArgumentList.Add(
+                _ffmpegDirectory);
         }
 
         startInfo.ArgumentList.Add(url);
 
-        using Process process = new()
-        {
-            StartInfo = startInfo,
-            EnableRaisingEvents = true
-        };
-
-        StringBuilder output = new();
-        StringBuilder errors = new();
-
-        process.OutputDataReceived += (_, eventArgs) =>
-        {
-            if (!string.IsNullOrWhiteSpace(eventArgs.Data))
+        using Process process =
+            new()
             {
-                output.AppendLine(eventArgs.Data);
-            }
-        };
+                StartInfo = startInfo,
+                EnableRaisingEvents = true
+            };
 
-        process.ErrorDataReceived += (_, eventArgs) =>
-        {
-            if (!string.IsNullOrWhiteSpace(eventArgs.Data))
+        StringBuilder errors =
+            new();
+
+        process.ErrorDataReceived +=
+            (_, eventArgs) =>
             {
-                errors.AppendLine(eventArgs.Data);
-            }
-        };
+                if (!string.IsNullOrWhiteSpace(
+                        eventArgs.Data))
+                {
+                    errors.AppendLine(
+                        eventArgs.Data);
+                }
+            };
 
         if (!process.Start())
         {
@@ -123,13 +143,34 @@ public sealed class PlatformVideoDownloader
                 "Could not start yt-dlp.");
         }
 
-        process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
-        await process.WaitForExitAsync(cancellationToken);
+        try
+        {
+            await process.WaitForExitAsync(
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(
+                    entireProcessTree: true);
+            }
+
+            DeleteIncompleteFiles(
+                videoFolder,
+                filePrefix);
+
+            throw;
+        }
 
         if (process.ExitCode != 0)
         {
+            DeleteIncompleteFiles(
+                videoFolder,
+                filePrefix);
+
             throw new InvalidOperationException(
                 $"Download failed:{Environment.NewLine}{errors}");
         }
@@ -137,24 +178,15 @@ public sealed class PlatformVideoDownloader
         string? downloadedFile =
             Directory
                 .GetFiles(videoFolder)
-                .Where(file =>
-                    file.StartsWith(
-                        Path.Combine(
-                            videoFolder,
-                            Path.GetFileNameWithoutExtension(
-                                outputTemplate)),
-                        StringComparison.OrdinalIgnoreCase))
+                .Where(
+                    file =>
+                        Path.GetFileName(file)
+                            .StartsWith(
+                                filePrefix,
+                                StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(
+                    File.GetLastWriteTimeUtc)
                 .FirstOrDefault();
-
-        if (downloadedFile is null)
-        {
-            downloadedFile =
-                Directory
-                    .GetFiles(videoFolder, "*.mp4")
-                    .OrderByDescending(
-                        File.GetLastWriteTimeUtc)
-                    .FirstOrDefault();
-        }
 
         if (downloadedFile is null)
         {
@@ -162,26 +194,60 @@ public sealed class PlatformVideoDownloader
                 "yt-dlp completed, but no downloaded video was found.");
         }
 
-        FileInfo fileInfo = new(downloadedFile);
+        FileInfo fileInfo =
+            new(downloadedFile);
 
-        VideoAsset video = new()
-        {
-            OriginalUrl = url,
-            LocalFilePath = downloadedFile,
-            FileName = Path.GetFileName(downloadedFile),
-            FileSizeBytes = fileInfo.Length,
-            DurationSeconds = 0,
-            Width = 0,
-            Height = 0,
-            ImportStatus = "Downloaded from platform URL",
-            CreatedAtUtc = DateTime.UtcNow
-        };
+        VideoAsset video =
+            new()
+            {
+                OriginalUrl = url,
+                LocalFilePath = downloadedFile,
+                FileName =
+                    Path.GetFileName(downloadedFile),
+                FileSizeBytes = fileInfo.Length,
+                DurationSeconds = 0,
+                Width = 0,
+                Height = 0,
+                ImportStatus =
+                    "Downloaded from platform URL",
+                CreatedAtUtc =
+                    DateTime.UtcNow
+            };
 
-        using AppDbContext database = new();
+        using AppDbContext database =
+            new();
 
         database.Videos.Add(video);
+
         await database.SaveChangesAsync();
 
         return video;
+    }
+
+    private static void DeleteIncompleteFiles(
+        string folder,
+        string filePrefix)
+    {
+        string[] files =
+            Directory.GetFiles(folder)
+                .Where(
+                    file =>
+                        Path.GetFileName(file)
+                            .StartsWith(
+                                filePrefix,
+                                StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+
+        foreach (string file in files)
+        {
+            try
+            {
+                File.Delete(file);
+            }
+            catch
+            {
+                // Ignore cleanup errors.
+            }
+        }
     }
 }

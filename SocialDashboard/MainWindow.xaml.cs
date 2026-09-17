@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace SocialDashboard;
@@ -16,9 +17,12 @@ public sealed partial class MainWindow : Window
     private readonly VideoLibraryService _videoLibraryService = new();
 
     private readonly PlatformVideoDownloader
-    _platformVideoDownloader = new();
+        _platformVideoDownloader = new();
 
-    private readonly ObservableCollection<VideoAsset> _videos = new();
+    private readonly ObservableCollection<VideoAsset>
+        _videos = new();
+
+    private CancellationTokenSource? _downloadCancellation;
 
     public MainWindow()
     {
@@ -37,7 +41,8 @@ public sealed partial class MainWindow : Window
 
             List<VideoAsset> videos =
                 await database.Videos
-                    .OrderByDescending(video => video.CreatedAtUtc)
+                    .OrderByDescending(
+                        video => video.CreatedAtUtc)
                     .ToListAsync();
 
             _videos.Clear();
@@ -63,14 +68,18 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            StatusText.Text = "Select a video file...";
+            StatusText.Text =
+                "Select a video file...";
 
             VideoAsset? video =
-                await _videoLibraryService.ImportVideoAsync(this);
+                await _videoLibraryService
+                    .ImportVideoAsync(this);
 
             if (video is null)
             {
-                StatusText.Text = "Import cancelled.";
+                StatusText.Text =
+                    "Import cancelled.";
+
                 return;
             }
 
@@ -86,29 +95,25 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void RefreshLibraryButton_Click(
+    private async void DownloadVideoButton_Click(
         object sender,
         RoutedEventArgs e)
     {
-        await LoadVideosAsync();
-    }
-    private async void DownloadVideoButton_Click(
-    object sender,
-    RoutedEventArgs e)
-    {
-        string url = VideoUrlTextBox.Text.Trim();
+        string url =
+            VideoUrlTextBox.Text.Trim();
 
         if (string.IsNullOrWhiteSpace(url))
         {
             StatusText.Text =
                 "Paste a direct video URL first.";
+
             return;
         }
 
         try
         {
             StatusText.Text =
-                "Downloading video...";
+                "Downloading direct video URL...";
 
             VideoAsset? video =
                 await _videoLibraryService
@@ -118,12 +123,14 @@ public sealed partial class MainWindow : Window
             {
                 StatusText.Text =
                     "Download cancelled.";
+
                 return;
             }
 
             _videos.Insert(0, video);
 
-            VideoUrlTextBox.Text = string.Empty;
+            VideoUrlTextBox.Text =
+                string.Empty;
 
             StatusText.Text =
                 $"Downloaded: {video.FileName}";
@@ -136,15 +143,17 @@ public sealed partial class MainWindow : Window
     }
 
     private async void DownloadPlatformVideoButton_Click(
-    object sender,
-    RoutedEventArgs e)
+        object sender,
+        RoutedEventArgs e)
     {
-        string url = VideoUrlTextBox.Text.Trim();
+        string url =
+            VideoUrlTextBox.Text.Trim();
 
         if (string.IsNullOrWhiteSpace(url))
         {
             StatusText.Text =
                 "Paste a platform URL first.";
+
             return;
         }
 
@@ -156,6 +165,14 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        _downloadCancellation?.Dispose();
+
+        _downloadCancellation =
+            new CancellationTokenSource();
+
+        CancelDownloadButton.IsEnabled =
+            true;
+
         try
         {
             StatusText.Text =
@@ -163,20 +180,57 @@ public sealed partial class MainWindow : Window
 
             VideoAsset video =
                 await _platformVideoDownloader
-                    .DownloadAsync(url);
+                    .DownloadAsync(
+                        url,
+                        _downloadCancellation.Token);
 
             _videos.Insert(0, video);
 
-            VideoUrlTextBox.Text = string.Empty;
-            PermissionCheckBox.IsChecked = false;
+            VideoUrlTextBox.Text =
+                string.Empty;
+
+            PermissionCheckBox.IsChecked =
+                false;
 
             StatusText.Text =
                 $"Downloaded: {video.FileName}";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText.Text =
+                "Download cancelled.";
         }
         catch (Exception exception)
         {
             StatusText.Text =
                 $"Platform download failed: {exception.Message}";
         }
+        finally
+        {
+            CancelDownloadButton.IsEnabled =
+                false;
+
+            _downloadCancellation?.Dispose();
+
+            _downloadCancellation =
+                null;
+        }
+    }
+
+    private void CancelDownloadButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        _downloadCancellation?.Cancel();
+
+        StatusText.Text =
+            "Cancelling download...";
+    }
+
+    private async void RefreshLibraryButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        await LoadVideosAsync();
     }
 }
