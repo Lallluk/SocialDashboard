@@ -38,6 +38,7 @@ namespace SocialDashboard
             InitializeComponent();
 
             using AppDbContext database = new();
+
             database.Database.EnsureCreated();
         }
 

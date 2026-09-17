@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -56,6 +57,11 @@ public sealed class PlatformVideoDownloader
                 $"yt-dlp.exe was not found at {_ytDlpPath}");
         }
 
+        VideoMetadata metadata =
+            await ReadMetadataAsync(
+                url,
+                cancellationToken);
+
         string videoFolder =
             Path.Combine(
                 Environment.GetFolderPath(
@@ -65,56 +71,28 @@ public sealed class PlatformVideoDownloader
 
         Directory.CreateDirectory(videoFolder);
 
+        string safeTitle =
+            MakeSafeFileName(
+                string.IsNullOrWhiteSpace(
+                    metadata.Title)
+                    ? "downloaded-video"
+                    : metadata.Title);
+
         string filePrefix =
-            Guid.NewGuid().ToString();
+            $"{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}";
 
         string outputTemplate =
             Path.Combine(
                 videoFolder,
-                $"{filePrefix}.%(ext)s");
+                $"{filePrefix}-{safeTitle}.%(ext)s");
 
         ProcessStartInfo startInfo =
-            new()
-            {
-                FileName = _ytDlpPath,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
+            CreateProcessStartInfo();
 
-        startInfo.ArgumentList.Add(
-            "--no-playlist");
-
-        startInfo.ArgumentList.Add(
-            "--merge-output-format");
-
-        startInfo.ArgumentList.Add(
-            "mp4");
-
-        startInfo.ArgumentList.Add(
-            "--newline");
-
-        startInfo.ArgumentList.Add(
-            "--no-warnings");
-
-        startInfo.ArgumentList.Add(
-            "-o");
-
-        startInfo.ArgumentList.Add(
-            outputTemplate);
-
-        if (Directory.Exists(
-                _ffmpegDirectory))
-        {
-            startInfo.ArgumentList.Add(
-                "--ffmpeg-location");
-
-            startInfo.ArgumentList.Add(
-                _ffmpegDirectory);
-        }
-
-        startInfo.ArgumentList.Add(url);
+        AddDownloadArguments(
+            startInfo,
+            outputTemplate,
+            url);
 
         using Process process =
             new()
@@ -201,13 +179,26 @@ public sealed class PlatformVideoDownloader
             new()
             {
                 OriginalUrl = url,
-                LocalFilePath = downloadedFile,
+                SourcePlatform =
+                    DetectPlatform(uri),
+                SourceTitle =
+                    metadata.Title,
+                SourceUploader =
+                    metadata.Uploader,
+                SourceVideoId =
+                    metadata.VideoId,
+                LocalFilePath =
+                    downloadedFile,
                 FileName =
                     Path.GetFileName(downloadedFile),
-                FileSizeBytes = fileInfo.Length,
-                DurationSeconds = 0,
-                Width = 0,
-                Height = 0,
+                FileSizeBytes =
+                    fileInfo.Length,
+                DurationSeconds =
+                    metadata.DurationSeconds,
+                Width =
+                    metadata.Width,
+                Height =
+                    metadata.Height,
                 ImportStatus =
                     "Downloaded from platform URL",
                 CreatedAtUtc =
@@ -224,12 +215,236 @@ public sealed class PlatformVideoDownloader
         return video;
     }
 
+    private async Task<VideoMetadata> ReadMetadataAsync(
+        string url,
+        CancellationToken cancellationToken)
+    {
+        ProcessStartInfo startInfo =
+            CreateProcessStartInfo();
+
+        startInfo.ArgumentList.Add(
+            "--dump-single-json");
+
+        startInfo.ArgumentList.Add(
+            "--no-playlist");
+
+        startInfo.ArgumentList.Add(
+            "--skip-download");
+
+        startInfo.ArgumentList.Add(url);
+
+        using Process process =
+            new()
+            {
+                StartInfo = startInfo
+            };
+
+        if (!process.Start())
+        {
+            throw new InvalidOperationException(
+                "Could not start yt-dlp metadata reader.");
+        }
+
+        string json =
+            await process.StandardOutput
+                .ReadToEndAsync(cancellationToken);
+
+        string errors =
+            await process.StandardError
+                .ReadToEndAsync(cancellationToken);
+
+        await process.WaitForExitAsync(
+            cancellationToken);
+
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"Could not read video metadata:{Environment.NewLine}{errors}");
+        }
+
+        using JsonDocument document =
+            JsonDocument.Parse(json);
+
+        JsonElement root =
+            document.RootElement;
+
+        return new VideoMetadata
+        {
+            VideoId =
+                GetString(
+                    root,
+                    "id"),
+
+            Title =
+                GetString(
+                    root,
+                    "title"),
+
+            Uploader =
+                GetString(
+                    root,
+                    "uploader"),
+
+            DurationSeconds =
+                GetDouble(
+                    root,
+                    "duration"),
+
+            Width =
+                GetInt(
+                    root,
+                    "width"),
+
+            Height =
+                GetInt(
+                    root,
+                    "height")
+        };
+    }
+
+    private ProcessStartInfo CreateProcessStartInfo()
+    {
+        ProcessStartInfo startInfo =
+            new()
+            {
+                FileName = _ytDlpPath,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+        if (Directory.Exists(
+                _ffmpegDirectory))
+        {
+            startInfo.ArgumentList.Add(
+                "--ffmpeg-location");
+
+            startInfo.ArgumentList.Add(
+                _ffmpegDirectory);
+        }
+
+        return startInfo;
+    }
+
+    private static void AddDownloadArguments(
+        ProcessStartInfo startInfo,
+        string outputTemplate,
+        string url)
+    {
+        startInfo.ArgumentList.Add(
+            "--no-playlist");
+
+        startInfo.ArgumentList.Add(
+            "--merge-output-format");
+
+        startInfo.ArgumentList.Add(
+            "mp4");
+
+        startInfo.ArgumentList.Add(
+            "--newline");
+
+        startInfo.ArgumentList.Add(
+            "--no-warnings");
+
+        startInfo.ArgumentList.Add(
+            "-o");
+
+        startInfo.ArgumentList.Add(
+            outputTemplate);
+
+        startInfo.ArgumentList.Add(
+            url);
+    }
+
+    private static string DetectPlatform(
+        Uri uri)
+    {
+        string host =
+            uri.Host.ToLowerInvariant();
+
+        if (host.Contains("youtube") ||
+            host.Contains("youtu.be"))
+        {
+            return "YouTube";
+        }
+
+        if (host.Contains("tiktok"))
+        {
+            return "TikTok";
+        }
+
+        if (host.Contains("instagram"))
+        {
+            return "Instagram";
+        }
+
+        return "Other";
+    }
+
+    private static string MakeSafeFileName(
+        string fileName)
+    {
+        foreach (char invalidCharacter
+            in Path.GetInvalidFileNameChars())
+        {
+            fileName =
+                fileName.Replace(
+                    invalidCharacter,
+                    '_');
+        }
+
+        return fileName.Length > 80
+            ? fileName[..80]
+            : fileName;
+    }
+
+    private static string? GetString(
+        JsonElement root,
+        string propertyName)
+    {
+        return root.TryGetProperty(
+                propertyName,
+                out JsonElement value) &&
+            value.ValueKind ==
+                JsonValueKind.String
+            ? value.GetString()
+            : null;
+    }
+
+    private static double GetDouble(
+        JsonElement root,
+        string propertyName)
+    {
+        return root.TryGetProperty(
+                propertyName,
+                out JsonElement value) &&
+            value.TryGetDouble(
+                out double result)
+            ? result
+            : 0;
+    }
+
+    private static int GetInt(
+        JsonElement root,
+        string propertyName)
+    {
+        return root.TryGetProperty(
+                propertyName,
+                out JsonElement value) &&
+            value.TryGetInt32(
+                out int result)
+            ? result
+            : 0;
+    }
+
     private static void DeleteIncompleteFiles(
         string folder,
         string filePrefix)
     {
         string[] files =
-            Directory.GetFiles(folder)
+            Directory
+                .GetFiles(folder)
                 .Where(
                     file =>
                         Path.GetFileName(file)
@@ -249,5 +464,20 @@ public sealed class PlatformVideoDownloader
                 // Ignore cleanup errors.
             }
         }
+    }
+
+    private sealed class VideoMetadata
+    {
+        public string? VideoId { get; set; }
+
+        public string? Title { get; set; }
+
+        public string? Uploader { get; set; }
+
+        public double DurationSeconds { get; set; }
+
+        public int Width { get; set; }
+
+        public int Height { get; set; }
     }
 }

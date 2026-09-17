@@ -8,6 +8,14 @@ public sealed class VideoAsset
 
     public string? OriginalUrl { get; set; }
 
+    public string? SourcePlatform { get; set; }
+
+    public string? SourceTitle { get; set; }
+
+    public string? SourceUploader { get; set; }
+
+    public string? SourceVideoId { get; set; }
+
     public required string LocalFilePath { get; set; }
 
     public required string FileName { get; set; }
