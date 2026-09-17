@@ -11,7 +11,9 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <StackPanel
@@ -33,7 +35,7 @@
         <StackPanel
             Grid.Row="1"
             Spacing="12"
-            Margin="0,24,0,20">
+            Margin="0,24,0,12">
 
             <TextBox
                 x:Name="VideoUrlTextBox"
@@ -43,8 +45,7 @@
             <CheckBox
                 x:Name="PermissionCheckBox"
                 Content="I own or have permission to download and reuse this content."
-                Foreground="#CBD5E1"
-                Margin="0,8,0,4"/>
+                Foreground="#CBD5E1"/>
 
             <StackPanel
                 Orientation="Horizontal"
@@ -82,6 +83,40 @@
         <Border
             Grid.Row="2"
             Background="#1E293B"
+            CornerRadius="10"
+            Padding="18"
+            Margin="0,8,0,16">
+
+            <StackPanel
+                Orientation="Horizontal"
+                Spacing="18">
+
+                <TextBlock
+                    Text="YouTube"
+                    Foreground="White"
+                    FontSize="18"
+                    FontWeight="SemiBold"/>
+
+                <TextBlock
+                    x:Name="YouTubeAccountText"
+                    Text="Not connected"
+                    Foreground="#FBBF24"
+                    VerticalAlignment="Center"/>
+
+                <Button
+                    Content="Connect YouTube"
+                    Click="ConnectYouTubeButton_Click"/>
+
+                <Button
+                    Content="Disconnect"
+                    Click="DisconnectYouTubeButton_Click"
+                    IsEnabled="False"/>
+            </StackPanel>
+        </Border>
+
+        <Border
+            Grid.Row="3"
+            Background="#1E293B"
             CornerRadius="12"
             Padding="20">
 
@@ -89,7 +124,6 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <TextBlock
@@ -131,15 +165,20 @@
                                             FontWeight="SemiBold"/>
 
                                         <TextBlock
-                                            Text="{Binding ImportStatus}"
-                                            Foreground="#34D399"
+                                            Text="{Binding SourcePlatform}"
+                                            Foreground="#60A5FA"
                                             FontSize="13"/>
 
                                         <TextBlock
-                                            Text="{Binding LocalFilePath}"
-                                            Foreground="#94A3B8"
-                                            FontSize="12"
+                                            Text="{Binding SourceTitle}"
+                                            Foreground="#CBD5E1"
+                                            FontSize="13"
                                             TextTrimming="CharacterEllipsis"/>
+
+                                        <TextBlock
+                                            Text="{Binding ImportStatus}"
+                                            Foreground="#34D399"
+                                            FontSize="13"/>
                                     </StackPanel>
 
                                     <StackPanel
@@ -164,14 +203,14 @@
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
-
-                <TextBlock
-                    Grid.Row="2"
-                    x:Name="StatusText"
-                    Text="Loading library..."
-                    Foreground="#CBD5E1"
-                    Margin="0,16,0,0"/>
             </Grid>
         </Border>
+
+        <TextBlock
+            Grid.Row="4"
+            x:Name="StatusText"
+            Text="Ready."
+            Foreground="#CBD5E1"
+            Margin="0,16,0,0"/>
     </Grid>
 </Window>

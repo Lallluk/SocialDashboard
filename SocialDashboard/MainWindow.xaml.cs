@@ -1,3 +1,4 @@
+using Google.Apis.YouTube.v3;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.UI.Xaml;
 using SocialDashboard.Data;
@@ -14,21 +15,30 @@ namespace SocialDashboard;
 
 public sealed partial class MainWindow : Window
 {
-    private readonly VideoLibraryService _videoLibraryService = new();
+    private readonly VideoLibraryService
+        _videoLibraryService = new();
 
     private readonly PlatformVideoDownloader
         _platformVideoDownloader = new();
 
+    private readonly YouTubeOAuthService
+        _youTubeOAuthService = new();
+
     private readonly ObservableCollection<VideoAsset>
         _videos = new();
 
-    private CancellationTokenSource? _downloadCancellation;
+    private CancellationTokenSource?
+        _downloadCancellation;
+
+    private YouTubeService?
+        _youTubeService;
 
     public MainWindow()
     {
         InitializeComponent();
 
-        VideoListView.ItemsSource = _videos;
+        VideoListView.ItemsSource =
+            _videos;
 
         _ = LoadVideosAsync();
     }
@@ -37,7 +47,8 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            using AppDbContext database = new();
+            using AppDbContext database =
+                new();
 
             List<VideoAsset> videos =
                 await database.Videos
@@ -60,6 +71,73 @@ public sealed partial class MainWindow : Window
             StatusText.Text =
                 $"Could not load library: {exception.Message}";
         }
+    }
+
+    private async void ConnectYouTubeButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        try
+        {
+            StatusText.Text =
+                "Opening Google authorization...";
+
+            _youTubeService =
+                await _youTubeOAuthService
+                    .ConnectAsync();
+
+            var request =
+                _youTubeService.Channels.List(
+                    "snippet,contentDetails");
+
+            request.Mine =
+                true;
+
+            Google.Apis.YouTube.v3.Data.ChannelListResponse response =
+                await request.ExecuteAsync();
+
+            Google.Apis.YouTube.v3.Data.Channel? channel =
+                response.Items.FirstOrDefault();
+
+            if (channel is null)
+            {
+                YouTubeAccountText.Text =
+                    "No YouTube channel found.";
+
+                StatusText.Text =
+                    "The Google account has no YouTube channel.";
+
+                return;
+            }
+
+            YouTubeAccountText.Text =
+                channel.Snippet.Title;
+
+            StatusText.Text =
+                $"Connected to YouTube: {channel.Snippet.Title}";
+        }
+        catch (Exception exception)
+        {
+            YouTubeAccountText.Text =
+                "Not connected";
+
+            StatusText.Text =
+                $"YouTube connection failed: {exception.Message}";
+        }
+    }
+
+    private void DisconnectYouTubeButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        _youTubeService =
+            null;
+
+        YouTubeAccountText.Text =
+            "Not connected";
+
+        StatusText.Text =
+            "YouTube disconnected.";
     }
 
     private async void ImportVideoButton_Click(
