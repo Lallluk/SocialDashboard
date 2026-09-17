@@ -148,6 +148,14 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        if (PermissionCheckBox.IsChecked != true)
+        {
+            StatusText.Text =
+                "Please confirm that you own or have permission to reuse this content.";
+
+            return;
+        }
+
         try
         {
             StatusText.Text =
@@ -160,6 +168,7 @@ public sealed partial class MainWindow : Window
             _videos.Insert(0, video);
 
             VideoUrlTextBox.Text = string.Empty;
+            PermissionCheckBox.IsChecked = false;
 
             StatusText.Text =
                 $"Downloaded: {video.FileName}";

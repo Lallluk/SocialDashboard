@@ -40,6 +40,12 @@
                 PlaceholderText="Paste a YouTube, TikTok, Instagram, or direct video URL"
                 MinWidth="620"/>
 
+            <CheckBox
+                x:Name="PermissionCheckBox"
+                Content="I own or have permission to download and reuse this content."
+                Foreground="#CBD5E1"
+                Margin="0,8,0,4"/>
+
             <StackPanel
                 Orientation="Horizontal"
                 Spacing="12">
