@@ -1,36 +1,314 @@
+using Google.Apis.YouTube.v3;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
-using Microsoft.UI.Xaml.Data;
-using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Navigation;
+using SocialDashboard.Data;
+using SocialDashboard.Models;
+using SocialDashboard.Services;
 using System;
 using System.Collections.Generic;
-using System.IO;
+using System.Collections.ObjectModel;
 using System.Linq;
-using System.Runtime.InteropServices.WindowsRuntime;
-using Windows.Foundation;
-using Windows.Foundation.Collections;
+using System.Threading;
+using System.Threading.Tasks;
 
-// To learn more about WinUI, the WinUI project structure,
-// and more about our project templates, see: http://aka.ms/winui-project-info.
+namespace SocialDashboard;
 
-namespace SocialDashboard
+public sealed partial class MainWindow : Window
 {
-    /// <summary>
-    /// An empty window that can be used on its own or navigated to within a Frame.
-    /// </summary>
-    public sealed partial class MainWindow : Window
+    private readonly VideoLibraryService
+        _videoLibraryService = new();
+
+    private readonly PlatformVideoDownloader
+        _platformVideoDownloader = new();
+
+    private readonly YouTubeOAuthService
+        _youTubeOAuthService = new();
+
+    private readonly ObservableCollection<VideoAsset>
+        _videos = new();
+
+    private CancellationTokenSource?
+        _downloadCancellation;
+
+    private YouTubeService?
+        _youTubeService;
+
+    public MainWindow()
     {
-        public MainWindow()
+        InitializeComponent();
+
+        VideoListView.ItemsSource =
+            _videos;
+
+        _ = LoadVideosAsync();
+    }
+
+    private async Task LoadVideosAsync()
+    {
+        try
         {
-            InitializeComponent();
+            using AppDbContext database =
+                new();
+
+            List<VideoAsset> videos =
+                await database.Videos
+                    .OrderByDescending(
+                        video => video.CreatedAtUtc)
+                    .ToListAsync();
+
+            _videos.Clear();
+
+            foreach (VideoAsset video in videos)
+            {
+                _videos.Add(video);
+            }
+
+            StatusText.Text =
+                $"{_videos.Count} video(s) in your library.";
+        }
+        catch (Exception exception)
+        {
+            StatusText.Text =
+                $"Could not load library: {exception.Message}";
+        }
+    }
+
+    private async void ConnectYouTubeButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        try
+        {
+            StatusText.Text =
+                "Opening Google authorization...";
+
+            _youTubeService =
+                await _youTubeOAuthService
+                    .ConnectAsync();
+
+            var request =
+                _youTubeService.Channels.List(
+                    "snippet,contentDetails");
+
+            request.Mine =
+                true;
+
+            Google.Apis.YouTube.v3.Data.ChannelListResponse response =
+                await request.ExecuteAsync();
+
+            Google.Apis.YouTube.v3.Data.Channel? channel =
+                response.Items.FirstOrDefault();
+
+            if (channel is null)
+            {
+                YouTubeAccountText.Text =
+                    "No YouTube channel found.";
+
+                StatusText.Text =
+                    "The Google account has no YouTube channel.";
+
+                return;
+            }
+
+            YouTubeAccountText.Text =
+                channel.Snippet.Title;
+
+            StatusText.Text =
+                $"Connected to YouTube: {channel.Snippet.Title}";
+        }
+        catch (Exception exception)
+        {
+            YouTubeAccountText.Text =
+                "Not connected";
+
+            StatusText.Text =
+                $"YouTube connection failed: {exception.Message}";
+        }
+    }
+
+    private void DisconnectYouTubeButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        _youTubeService =
+            null;
+
+        YouTubeAccountText.Text =
+            "Not connected";
+
+        StatusText.Text =
+            "YouTube disconnected.";
+    }
+
+    private async void ImportVideoButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        try
+        {
+            StatusText.Text =
+                "Select a video file...";
+
+            VideoAsset? video =
+                await _videoLibraryService
+                    .ImportVideoAsync(this);
+
+            if (video is null)
+            {
+                StatusText.Text =
+                    "Import cancelled.";
+
+                return;
+            }
+
+            _videos.Insert(0, video);
+
+            StatusText.Text =
+                $"Imported: {video.FileName}";
+        }
+        catch (Exception exception)
+        {
+            StatusText.Text =
+                $"Import failed: {exception.Message}";
+        }
+    }
+
+    private async void DownloadVideoButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        string url =
+            VideoUrlTextBox.Text.Trim();
+
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            StatusText.Text =
+                "Paste a direct video URL first.";
+
+            return;
         }
 
-        private void TestButton_Click(object sender, RoutedEventArgs e)
+        try
         {
-            StatusText.Text = "Status: Button works";
+            StatusText.Text =
+                "Downloading direct video URL...";
+
+            VideoAsset? video =
+                await _videoLibraryService
+                    .ImportVideoFromUrlAsync(url);
+
+            if (video is null)
+            {
+                StatusText.Text =
+                    "Download cancelled.";
+
+                return;
+            }
+
+            _videos.Insert(0, video);
+
+            VideoUrlTextBox.Text =
+                string.Empty;
+
+            StatusText.Text =
+                $"Downloaded: {video.FileName}";
         }
+        catch (Exception exception)
+        {
+            StatusText.Text =
+                $"Download failed: {exception.Message}";
+        }
+    }
+
+    private async void DownloadPlatformVideoButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        string url =
+            VideoUrlTextBox.Text.Trim();
+
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            StatusText.Text =
+                "Paste a platform URL first.";
+
+            return;
+        }
+
+        if (PermissionCheckBox.IsChecked != true)
+        {
+            StatusText.Text =
+                "Please confirm that you own or have permission to reuse this content.";
+
+            return;
+        }
+
+        _downloadCancellation?.Dispose();
+
+        _downloadCancellation =
+            new CancellationTokenSource();
+
+        CancelDownloadButton.IsEnabled =
+            true;
+
+        try
+        {
+            StatusText.Text =
+                "Downloading platform video...";
+
+            VideoAsset video =
+                await _platformVideoDownloader
+                    .DownloadAsync(
+                        url,
+                        _downloadCancellation.Token);
+
+            _videos.Insert(0, video);
+
+            VideoUrlTextBox.Text =
+                string.Empty;
+
+            PermissionCheckBox.IsChecked =
+                false;
+
+            StatusText.Text =
+                $"Downloaded: {video.FileName}";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText.Text =
+                "Download cancelled.";
+        }
+        catch (Exception exception)
+        {
+            StatusText.Text =
+                $"Platform download failed: {exception.Message}";
+        }
+        finally
+        {
+            CancelDownloadButton.IsEnabled =
+                false;
+
+            _downloadCancellation?.Dispose();
+
+            _downloadCancellation =
+                null;
+        }
+    }
+
+    private void CancelDownloadButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        _downloadCancellation?.Cancel();
+
+        StatusText.Text =
+            "Cancelling download...";
+    }
+
+    private async void RefreshLibraryButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        await LoadVideosAsync();
     }
 }

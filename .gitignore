@@ -31,3 +31,11 @@ Thumbs.db
 .env.*
 secrets.json
 appsettings.Local.json
+
+# Local downloader tools
+SocialDashboard/Tools/
+
+# Google OAuth credentials
+client_secret.json
+SocialDashboard/Credentials/
+GoogleToken/
